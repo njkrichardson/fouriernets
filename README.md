@@ -20,7 +20,7 @@ References: https://scholarship.claremont.edu/hmc_theses/226/
 ## Installing from git source
 
 ```
-git clone git@github.com:njkrichardson/fouriernets.git
+git clone https://github.com/njkrichardson/fouriernets.git
 pip install -e fouriernets
 ```
 

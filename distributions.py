@@ -3,8 +3,6 @@ import numpy.random as npr
 from math import pi, exp, cos
 import pandas as pd
 import seaborn as sns
-# from utils import plot_distribution
-
 
 def uniform(num_bins : int, num_points : int, visualize : bool = False) -> np.ndarray: 
     '''

@@ -18,5 +18,6 @@ setuptools.setup(name='fouriernets',
         "autograd==1.3",
         "jupyterlab~=1.2.5",
         "matplotlib",
-        "pandas"]
+        "pandas", 
+        "seaborn"]
      )
