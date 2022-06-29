@@ -1,105 +1,105 @@
-import numpy as np 
-import pandas as pd
-import numpy.random as npr
-import seaborn as sns 
-import matplotlib.pyplot as plt
 from math import pi
-from utils import make_data, plot_sample, train_test_split, one_hot_decoding, plot_distribution
-from distributions import uniform, linear, semi_circular, von_mises
-import autograd.numpy as np
-import autograd.numpy.random as npr
-from autograd.scipy.special import logsumexp
+from typing import * 
+
 from autograd import grad
 from autograd.misc.flatten import flatten
 from autograd.misc.optimizers import adam
+import autograd.numpy as np
+import autograd.numpy.random as npr
+from autograd.scipy.special import logsumexp
+import matplotlib.pyplot as plt
+import seaborn as sns 
+
+from distributions import uniform, linear, semi_circular, von_mises
+from utils import make_data, plot_sample, train_test_split, one_hot_decoding, plot_distribution
 from nnet import init_mlp_params, mlp_log_posterior
+from type_aliases import *
+
+# --- seaborn stylization 
 sns.set_style('white')
 sns.set(rc={'figure.figsize':(18, 11)})
+
+# --- seed 
 npr.seed(0)
 
-# basic mlp 
-def init_mlp_params(scale, layer_sizes, rs=npr.RandomState(0)):
-    return [(scale * rs.randn(m, n),   # weight matrix
-             scale * rs.randn(n))      # bias vector
+# --- basic mlp 
+def init_mlp_params(scale: float, layer_sizes: List[int], key=npr.RandomState(0)):
+    return [(scale * key.randn(m, n),   
+             scale * key.randn(n))     
             for m, n in zip(layer_sizes[:-1], layer_sizes[1:])]
 
-def mlp_predict(params, inputs):
-    for W, b in params:
-        outputs = np.dot(inputs, W) + b
-        inputs = np.tanh(outputs)
+def mlp_predict(params: list, inputs: ndarray) -> ndarray:
+    for weight, bias in params:
+        outputs: ndarray = np.dot(inputs, weight) + bias
+        inputs: ndarray = np.tanh(outputs)
+
     return outputs - logsumexp(outputs, axis=1, keepdims=True)
 
-def l2_norm(params):
+def norm(params: list) -> float:
     flattened, _ = flatten(params)
     return np.dot(flattened, flattened)
 
-def mlp_log_posterior(params, inputs, targets, L2_reg):
-    log_prior = -L2_reg * l2_norm(params)
-    log_lik = np.sum(mlp_predict(params, inputs) * targets)
-    return log_prior + log_lik
+def mlp_log_posterior(params: list, inputs: ndarray, targets: ndarray, regularization: float):
+    log_prior: float = -regularization * norm(params)
+    log_likelihood: float = np.sum(mlp_predict(params, inputs) * targets)
+    return log_prior + log_likelihood
 
-def accuracy(params, inputs, targets):
-    target_class    = np.argmax(targets, axis=1)
-    predicted_class = np.argmax(mlp_predict(params, inputs), axis=1)
+def accuracy(params: list, inputs: ndarray, targets: ndarray) -> float:
+    target_class: ndarray = np.argmax(targets, axis=1)
+    predicted_class: ndarray = np.argmax(mlp_predict(params, inputs), axis=1)
     return np.mean(predicted_class == target_class)
 
 if __name__=="__main__": 
-    # simulation parameters 
-    n_draws = 128   # number of draws from each distribution 
-    n_bins = 64      # number of bins in each distribution 
+    # --- simulation parameters 
+    num_samples: int = 128   
+    num_bins: int = 64    
+    num_examples_per_class: int = 1_000  
 
-    # network parameters 
-    layer_sizes = [n_bins, 64, 4]
-    L2_reg = 1.0
-
-    # training parameters
-    param_scale = 0.1
-    batch_size = 256
-    num_epochs = 75
-    step_size = 0.001
-
-    # data size 
-    n_data = 1000  # number of data per class
-
-    # generate data 
+    # --- simulate
     print("Generating data...")
-    train_inputs, test_inputs, train_labels, test_labels = make_data(n_per_class=n_data, n_bins=n_bins, n_draws=n_draws, split=True)
+    train_inputs, test_inputs, train_labels, test_labels = make_data(n_per_class=num_examples_per_class, n_bins=num_bins, n_draws=num_samples, split=True)
 
-    # initialize the net
-    init_params = init_mlp_params(param_scale, layer_sizes)
+    # --- network architecture 
+    layer_sizes: list = [num_bins, 64, 4]
+    regularization: float = 1.0
 
-    # batching parameters
-    num_batches = int(np.ceil(len(train_inputs) / batch_size))
-    def batch_indices(iter):
-        idx = iter % num_batches
-        return slice(idx * batch_size, (idx+1) * batch_size)
+    # --- optimization 
+    param_scale: float = 0.1
+    batch_size: int = 256
+    num_epochs: int = 75
+    step_size: float = 0.001
 
-    # define training objective: negative log marginal likelihood 
-    def objective(params, iter):
-        idx = batch_indices(iter)
-        return -mlp_log_posterior(params, train_inputs[idx], train_labels[idx], L2_reg)
+    # --- initialize parameters
+    init_params: list = init_mlp_params(param_scale, layer_sizes)
 
-    # get gradient of objective using autograd
-    objective_grad = grad(objective)
+    # --- batching
+    num_batches: int = int(np.ceil(len(train_inputs) / batch_size))
+    def batch_indices(iteration: int) -> ndarray:
+        index: int = iteration % num_batches
+        return slice(index * batch_size, (index + 1) * batch_size)
 
+    def objective(params: list, iteration: int) -> float:
+        indexes: ndarray = batch_indices(iteration)
+        return -mlp_log_posterior(params, train_inputs[indexes], train_labels[indexes], regularization)
 
-    # log training and test loss 
-    train_accs, test_accs = [], []  
+    gradient: callable= grad(objective)
+
+    # --- training 
+    train_accuracy, test_accuracy = [], []  
     print("     Epoch     |    Train accuracy  |       Test accuracy  ")
 
-    def print_perf(params, iter, gradient):
-        if iter % num_batches == 0:
-            train_acc = accuracy(params, train_inputs, train_labels)
-            test_acc  = accuracy(params, test_inputs, test_labels)
-            train_accs.append(train_acc)
-            test_accs.append(test_acc)
-            print("{:15}|{:20}|{:20}".format(iter//num_batches, train_acc, test_acc))
+    def print_perf(params: list, iteration: int, *args):
+        if iteration % num_batches == 0:
+            _train_accuracy: float = accuracy(params, train_inputs, train_labels)
+            _test_accuracy: float  = accuracy(params, test_inputs, test_labels)
+            train_accuracy.append(_train_accuracy)
+            test_accuracy.append(_test_accuracy)
+            print(f"{(iteration // num_batches):03d}\t|\t{_train_accuracy:0.3f}\t|\t{_test_accuracy:0.3f}")
 
-    # The optimizers provided can optimize lists, tuples, or dicts of parameters.
-    optimized_params = adam(objective_grad, init_params, step_size=step_size,
-                            num_iters=num_epochs * num_batches, callback=print_perf)
+    optimized_params: list = adam(gradient, init_params, step_size=step_size, num_iters=num_epochs * num_batches, callback=print_perf)
 
-    losses = pd.DataFrame(data=np.vstack((train_accs, test_accs)).T, columns=['train_acc', 'test_acc'])
+    losses: ndarray = np.vstack((train_accuracy, test_accuracy)).T
+
     ax = sns.lineplot(data=losses, markers=True)
     ax.set(xlabel='iteration')
     ax.set(ylabel='accuracy')
