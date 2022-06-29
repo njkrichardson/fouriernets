@@ -1,52 +1,68 @@
-# Neural networks on circular data distributions 
+# Modeling Periodic Densities 
 
-<img src="https://raw.githubusercontent.com/njkrichardson/fouriernets/master/figs/circular_distributions.png" alt="drawing" height="200" width="300" class="center"/>
+![sample_fig](figs/samples.png)
 
+Fouriernets uses tooling from [Autograd](https://github.com/HIPS/autograd) to implement parametric models over periodic generating densities. I intend to show examples using multilayer perceptrons, autoencoders, and variational autoencoders (currently a tutorial for generating a simple mlp is available). 
 
-This package uses tooling from autograd to implement various neural nets toward discriminatively modeling distributions over circular data. I intend to show examples using multilayer perceptrons, autoencoders, and variational autoencoders (currently a tutorial for generating a simple mlp is available). 
+## Contents 
+  1. [Installing Dependencies]() 
+  2. [Background]() 
+  3. [Example]() 
+  4. [References]()
 
-Coming Soon: 
-  * autoencoders
-  * variational autoencoders 
-  * Bayesian neural nets 
-  * Bayesian optimization utility 
-  * 3D data over the sphere
+---
+## Installing Dependences 
 
-_Author: [Nick Richardson](https://github.com/njkrichardson)_
+### Configuring Your Path 
 
+The modules under `src` must be visible to your Python3 interpreter to be imported. You can do this by updating your shell's `PYTHONPATH` environment
+variable to include this directory. To do this, place the following line into your shell configuration file (e.g., `.bashrc` for bash users or `.zshrc` for 
+zsh users) or in a `.envrc` under the top-level project directory for [direnv](https://direnv.net/) users. 
 
-References: https://scholarship.claremont.edu/hmc_theses/226/
-
-## Installing from git source
-
+```bash
+export PYTHONPATH=$PYTHONPATH:/Path/to/fouriernets/src 
 ```
-git clone https://github.com/njkrichardson/fouriernets.git
-pip install -e fouriernets
+
+### Automated (conda | pip) 
+To install the dependencies using either [conda](https://docs.conda.io/en/latest/) or the Python package installer [pip](https://pypi.org/project/pip/), 
+execute one of the following in your shell once you've navigated to the top-level project directory: 
+
+```bash
+$ conda env create --name=periwinkle --file environment.yml
 ```
 
-# Background 
+```bash
+$ python3 -m pip --requirement=requirements.txt
+```
+
+### Manual 
+
+Fouriernets requires an installation of Python3.7 or higher, as well as [NumPy](https://numpy.org/doc/stable/reference/index.html#reference) ([installation instructions](https://numpy.org/devdocs/user/building.html)). 
+Fouriernets was tested against NumPy 1.23.0. 
+
+## Background 
 
 Modeling natural data (images, speech, language) is often a task of identifying label-dependent invariances that allow us to discriminate between the different classes even on unseen inputs. These invariants reflect the latent structure in the data. Data over circular and spherical manifolds arise as a special case of rotational structure. Discriminating between different distributions over circles and spheres then, is an interesting task of density estimation in which one hopes to capture and represent the inherent rotational symmetry in the data. 
 
 The package provides a number of utilities to generate distributions over circles, and create a variety of neural networks to discriminatively model the distributions. 
 
-# Example 
+## Example 
 
-The fouriernets package provides a number of utilities to create and visualize distributions over circles, or make your own dataset: the distribution metaparameters can be provided as kwargs for custom datasets. 
+The package provides a number of utilities to simulate from and visualize distributions over circles: the distributional parameters can be provided as keyword arguments when using custom datasets. 
 
 ```python 
 from utils import make_data, plot_sample, train_test_split
 
-# simulation parameters 
-n_draws = 128   # number of draws from each distribution 
-n_bins = 64     # number of bins in each distribution 
-n_data = 1000   # number of data per class
+# --- simulation parameters 
+num_samples: int = 128   
+num_bins: int = 64      
+num_examples_per_class: int = 1_000
 
-# generate the data 
-train_inputs, test_inputs, train_labels, test_labels = make_data(n_per_class=n_data, n_bins=n_bins, n_draws=n_draws, split=True)
+# --- simulate
+train_inputs, test_inputs, train_labels, test_labels = make_data(n_per_class=num_examples_per_class, n_bins=num_bins, n_draws=num_samples, split=True)
 ```
 
-fouriernets also provides simple plotting and visualization utilities 
+FourierNets also provides simple plotting and visualization utilities 
 
 ```python
 plot_sample(train_inputs, train_labels)
@@ -54,51 +70,25 @@ plot_sample(train_inputs, train_labels)
 
 ![sample_fig](figs/samples.png)
 
-you can then instantiate arbitrary neural network models using autograd. These functions and others are provided 
-in nnet.py 
+you can then instantiate basic neural network models implemented using Autograd. These functions and others are provided 
+in `nnet.py`. 
+
+it's then as easy as defining an objective function (and computing its gradient with respect to the parameters), and then "training" the network using 
+gradient-based optimization. 
 
 ```python 
-# basic mlp 
-def init_mlp_params(scale, layer_sizes, rs=npr.RandomState(0)):
-    return [(scale * rs.randn(m, n),   # weight matrix
-             scale * rs.randn(n))      # bias vector
-            for m, n in zip(layer_sizes[:-1], layer_sizes[1:])]
+def objective(params: tuple, iteration: int) -> float:
+    index: int = batch_indices(iteration)
+    return -mlp_log_posterior(params, train_inputs[index], train_labels[index], L2_reg)
 
-def mlp_predict(params, inputs):
-    for W, b in params:
-        outputs = np.dot(inputs, W) + b
-        inputs = np.tanh(outputs)
-    return outputs - logsumexp(outputs, axis=1, keepdims=True)
-
-def l2_norm(params):
-    flattened, _ = flatten(params)
-    return np.dot(flattened, flattened)
-
-def mlp_log_posterior(params, inputs, targets, L2_reg):
-    log_prior = -L2_reg * l2_norm(params)
-    log_lik = np.sum(mlp_predict(params, inputs) * targets)
-    return log_prior + log_lik
-
-def accuracy(params, inputs, targets):
-    target_class    = np.argmax(targets, axis=1)
-    predicted_class = np.argmax(mlp_predict(params, inputs), axis=1)
-    return np.mean(predicted_class == target_class)
+gradient: callable = grad(objective)
+optimized_params = adam(gradient, init_params, step_size=step_size, num_iters=num_epochs * num_batches)
 ```
 
-it's then just as easy as defining an objective function and its gradient with respect to the parameters, and then training the network. 
-
-```python 
-def objective(params, iter):
-    idx = batch_indices(iter)
-    return -mlp_log_posterior(params, train_inputs[idx], train_labels[idx], L2_reg)
-
-# get gradient of objective using autograd
-objective_grad = grad(objective)
-
-# The optimizers provided can optimize lists, tuples, or dicts of parameters.
-optimized_params = adam(objective_grad, init_params, step_size=step_size,
-                        num_iters=num_epochs * num_batches)
-```
 ![sample_fig](figs/training_performance.png)
 
 additional diagnostic tools, models, and tutorials are forthcoming. 
+
+## References 
+
+[1] [Using Neural Networks to Classify Discrete Circular Probability Distributions](https://scholarship.claremont.edu/hmc_theses/226/)
